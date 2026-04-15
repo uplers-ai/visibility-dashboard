@@ -25,7 +25,15 @@ sudo apt-get update -y
 sudo apt-get install -y python3 python3-venv python3-pip git nginx apache2-utils curl iptables-persistent
 
 echo "==> Opening port 80 in host firewall (Oracle Ubuntu images use iptables)"
-sudo iptables -I INPUT 6 -m state --state NEW -p tcp --dport 80 -j ACCEPT || true
+# Oracle's default INPUT chain has a REJECT rule near the end. We must
+# insert our ACCEPT *before* that REJECT, so first remove any duplicate
+# entry then insert just before the REJECT line.
+REJECT_LINE=$(sudo iptables -L INPUT --line-numbers -n | awk '/REJECT/ {print $1; exit}')
+if [ -n "$REJECT_LINE" ]; then
+  sudo iptables -I INPUT "$REJECT_LINE" -m state --state NEW -p tcp --dport 80 -j ACCEPT
+else
+  sudo iptables -I INPUT -m state --state NEW -p tcp --dport 80 -j ACCEPT
+fi
 sudo netfilter-persistent save || sudo sh -c "iptables-save > /etc/iptables/rules.v4" || true
 
 echo "==> Setting up Python venv"
