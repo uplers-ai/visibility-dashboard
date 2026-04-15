@@ -69,14 +69,14 @@ You're now on the VM as user `ubuntu`.
 
 ```bash
 cd ~
-git clone https://github.com/krishna-uplers/llm-visibility.git Uplers-llm-visibility
-cd Uplers-llm-visibility
+git clone https://github.com/uplers-ai/visibility-dashboard.git
+cd visibility-dashboard
 ```
 
 ### 2.3 Add API keys
 
 ```bash
-cp dashboard/deploy/.env.example .env
+cp deploy/.env.example .env
 nano .env
 ```
 
@@ -86,7 +86,7 @@ Paste each API key (OpenAI, Anthropic, Google, xAI, Perplexity). Save with
 ### 2.4 Run the installer
 
 ```bash
-bash dashboard/deploy/setup.sh
+bash deploy/setup.sh
 ```
 
 You'll be asked to pick a username for basic auth, then a password (twice).
@@ -130,9 +130,8 @@ tail -f /var/log/visibility-dashboard.log
 **Deploy code changes**
 
 ```bash
-cd ~/Uplers-llm-visibility
+cd ~/visibility-dashboard
 git pull
-cd dashboard
 ./venv/bin/pip install -r requirements.txt --quiet
 sudo systemctl restart visibility-dashboard
 ```
@@ -146,7 +145,7 @@ sudo htpasswd /etc/nginx/.htpasswd alice
 **Change API keys**
 
 ```bash
-nano ~/Uplers-llm-visibility/.env
+nano ~/visibility-dashboard/.env
 sudo systemctl restart visibility-dashboard
 ```
 

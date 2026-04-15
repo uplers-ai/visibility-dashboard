@@ -1,17 +1,16 @@
 #!/bin/bash
 # LLM Visibility Dashboard — one-shot installer for Ubuntu 22.04 on
-# Oracle Cloud Always Free (Ampere A1). Run as the `ubuntu` user AFTER:
-#   1. cloning the repo to /home/ubuntu/Uplers-llm-visibility
-#   2. creating /home/ubuntu/Uplers-llm-visibility/.env with your API keys
+# Oracle Cloud Always Free. Run as the `ubuntu` user AFTER:
+#   1. cloning the repo to /home/ubuntu/visibility-dashboard
+#   2. creating /home/ubuntu/visibility-dashboard/.env with your API keys
 
 set -euo pipefail
 
-APP_DIR="/home/ubuntu/Uplers-llm-visibility"
-DASH_DIR="$APP_DIR/dashboard"
-ENV_FILE="$APP_DIR/.env"
+DASH_DIR="/home/ubuntu/visibility-dashboard"
+ENV_FILE="$DASH_DIR/.env"
 
 if [ ! -d "$DASH_DIR" ]; then
-  echo "ERROR: $DASH_DIR not found. Clone the repo to $APP_DIR first."
+  echo "ERROR: $DASH_DIR not found. Clone the repo to $DASH_DIR first."
   exit 1
 fi
 
@@ -23,10 +22,9 @@ fi
 
 echo "==> Installing system packages"
 sudo apt-get update -y
-sudo apt-get install -y python3 python3-venv python3-pip git nginx apache2-utils curl
+sudo apt-get install -y python3 python3-venv python3-pip git nginx apache2-utils curl iptables-persistent
 
 echo "==> Opening port 80 in host firewall (Oracle Ubuntu images use iptables)"
-# iptables rule for Oracle's default Ubuntu image
 sudo iptables -I INPUT 6 -m state --state NEW -p tcp --dport 80 -j ACCEPT || true
 sudo netfilter-persistent save || sudo sh -c "iptables-save > /etc/iptables/rules.v4" || true
 
@@ -67,5 +65,5 @@ echo
 echo "Commands you may need later:"
 echo "  Restart app:   sudo systemctl restart visibility-dashboard"
 echo "  View logs:     tail -f /var/log/visibility-dashboard.log"
-echo "  Update code:   cd $APP_DIR && git pull && sudo systemctl restart visibility-dashboard"
+echo "  Update code:   cd $DASH_DIR && git pull && sudo systemctl restart visibility-dashboard"
 echo "  Add user:      sudo htpasswd /etc/nginx/.htpasswd <name>"
