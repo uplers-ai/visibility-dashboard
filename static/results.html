@@ -1,0 +1,73 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Audit Results · LLM Visibility Dashboard</title>
+  <link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@300;400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet" />
+  <link rel="stylesheet" href="/static/style.css" />
+</head>
+<body>
+  <nav class="nav">
+    <div class="nav-brand">LLM Visibility Dashboard</div>
+    <div class="nav-links">
+      <a href="/">New Audit</a>
+      <a href="/history">History</a>
+    </div>
+  </nav>
+
+  <div class="container">
+    <header>
+      <h1 id="audit-name">Loading…</h1>
+      <p class="subtitle" id="audit-meta"></p>
+    </header>
+
+    <div id="status-card" class="card">
+      <div class="row-spread" style="margin-bottom: 16px;">
+        <div>
+          <span class="badge" id="status-badge">…</span>
+          <span class="muted" id="status-detail" style="margin-left: 12px;"></span>
+        </div>
+        <div id="completed-text" class="mono muted"></div>
+      </div>
+      <div class="progress-bar"><div class="progress-fill" id="progress-fill" style="width:0%"></div></div>
+      <div class="progress-meta">
+        <span id="progress-message">Waiting…</span>
+        <span id="progress-percent">0%</span>
+      </div>
+    </div>
+
+    <div id="results-content" style="display:none;">
+      <div class="score-grid" id="score-grid"></div>
+
+      <h2>Performance by LLM</h2>
+      <div class="card" style="padding: 0; overflow:hidden;">
+        <table class="table" id="llm-table">
+          <thead><tr><th>LLM</th><th>Visibility</th><th>Mentions / Queries</th><th>Target Rank</th></tr></thead>
+          <tbody></tbody>
+        </table>
+      </div>
+
+      <h2 style="margin-top: 32px;">Visibility by Intent</h2>
+      <div class="card" style="padding:0; overflow:hidden;">
+        <table class="table" id="intent-table">
+          <thead><tr><th>Intent</th><th>Visibility</th><th>Mentions</th><th>Queries</th></tr></thead>
+          <tbody></tbody>
+        </table>
+      </div>
+
+      <h2 style="margin-top: 32px;">Company Rankings</h2>
+      <div class="rankings-grid" id="rankings-grid"></div>
+
+      <h2 style="margin-top: 32px;">Raw Responses</h2>
+      <div class="card">
+        <p class="muted" style="margin-bottom: 12px;">Showing all <span id="raw-count">0</span> responses. Use Ctrl+F to search.</p>
+        <div id="raw-list"></div>
+      </div>
+    </div>
+  </div>
+
+  <script src="/static/app.js"></script>
+  <script>initResultsPage();</script>
+</body>
+</html>

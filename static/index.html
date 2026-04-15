@@ -1,0 +1,105 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>New Audit · LLM Visibility Dashboard</title>
+  <link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@300;400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet" />
+  <link rel="stylesheet" href="/static/style.css" />
+</head>
+<body>
+  <nav class="nav">
+    <div class="nav-brand">LLM Visibility Dashboard</div>
+    <div class="nav-links">
+      <a href="/" class="active">New Audit</a>
+      <a href="/history">History</a>
+    </div>
+  </nav>
+
+  <div class="container">
+    <header>
+      <h1>Run a Visibility Audit</h1>
+      <p class="subtitle">Test how often your brand appears across LLMs for any set of queries — anchored to a specific location.</p>
+    </header>
+
+    <div id="notice" class="notice info" style="display:none;"></div>
+
+    <form id="audit-form" class="card">
+      <div class="form-row">
+        <div class="form-group">
+          <label for="name">Audit Name</label>
+          <input id="name" name="name" type="text" placeholder="e.g. California hiring queries — March" required />
+        </div>
+        <div class="form-group">
+          <label for="target_company">Target Brand</label>
+          <input id="target_company" name="target_company" type="text" value="Uplers" required />
+        </div>
+      </div>
+
+      <h3>Location</h3>
+      <div class="form-row three">
+        <div class="form-group">
+          <label for="country">Country</label>
+          <select id="country" name="country"></select>
+        </div>
+        <div class="form-group">
+          <label for="state">State / Region</label>
+          <select id="state" name="state"></select>
+        </div>
+        <div class="form-group">
+          <label for="city">City</label>
+          <select id="city" name="city"></select>
+        </div>
+      </div>
+
+      <h3>LLMs</h3>
+      <div class="form-group">
+        <div class="checkbox-grid" id="llm-grid"></div>
+        <p class="muted" id="llm-availability"></p>
+      </div>
+
+      <h3>Run Settings</h3>
+      <div class="form-row">
+        <div class="form-group">
+          <label for="runs_per_prompt">Runs per Query</label>
+          <select id="runs_per_prompt" name="runs_per_prompt">
+            <option value="1">1 (fastest)</option>
+            <option value="3" selected>3 (recommended)</option>
+            <option value="5">5 (most reliable)</option>
+          </select>
+        </div>
+        <div class="form-group">
+          <label for="query_set">Load Saved Set (optional)</label>
+          <select id="query_set"><option value="">— None —</option></select>
+        </div>
+      </div>
+
+      <h3>Queries</h3>
+      <div class="form-group">
+        <label for="queries">One query per line. Optional: prefix with <code>[Intent Name]</code> to group.</label>
+        <textarea id="queries" name="queries" required placeholder="[Top Platforms] What are the top platforms for hiring vetted Indian developers?
+[Competitors] Who are the best alternatives to Toptal?
+Hire AI engineers from India"></textarea>
+      </div>
+
+      <div class="form-row">
+        <div class="form-group">
+          <label for="set_name">Save current queries as set (optional)</label>
+          <input id="set_name" type="text" placeholder="e.g. Hiring queries v1" />
+        </div>
+        <div class="form-group" style="justify-content: flex-end;">
+          <button type="button" class="btn" id="save-set-btn">Save Set</button>
+        </div>
+      </div>
+
+      <div class="btn-row">
+        <button type="submit" class="btn btn-primary" id="run-btn">Run Audit</button>
+        <span class="muted" id="estimate"></span>
+      </div>
+    </form>
+  </div>
+
+  <script src="/static/app.js"></script>
+  <script>initIndexPage();</script>
+</body>
+</html>

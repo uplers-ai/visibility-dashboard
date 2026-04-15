@@ -1,0 +1,47 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>History · LLM Visibility Dashboard</title>
+  <link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@300;400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet" />
+  <link rel="stylesheet" href="/static/style.css" />
+</head>
+<body>
+  <nav class="nav">
+    <div class="nav-brand">LLM Visibility Dashboard</div>
+    <div class="nav-links">
+      <a href="/">New Audit</a>
+      <a href="/history" class="active">History</a>
+    </div>
+  </nav>
+
+  <div class="container">
+    <header>
+      <h1>Audit History</h1>
+      <p class="subtitle">All audits run from this dashboard. Click a row to view results.</p>
+    </header>
+
+    <div class="card" style="padding:0; overflow:hidden;">
+      <table class="table" id="history-table">
+        <thead>
+          <tr>
+            <th>#</th>
+            <th>Name</th>
+            <th>Location</th>
+            <th>LLMs</th>
+            <th>Status</th>
+            <th>Visibility</th>
+            <th>Created</th>
+            <th></th>
+          </tr>
+        </thead>
+        <tbody><tr><td colspan="8" class="muted" style="text-align:center; padding: 32px;">Loading…</td></tr></tbody>
+      </table>
+    </div>
+  </div>
+
+  <script src="/static/app.js"></script>
+  <script>initHistoryPage();</script>
+</body>
+</html>

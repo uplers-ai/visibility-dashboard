@@ -1,0 +1,23 @@
+# Python
+__pycache__/
+*.py[cod]
+*.so
+venv/
+env/
+.venv/
+
+# Environment
+.env
+.env.local
+
+# SQLite DB and any local data
+data/*.db
+data/*.db-journal
+data/*.db-wal
+data/*.db-shm
+
+# IDE / OS
+.idea/
+.vscode/
+.DS_Store
+*.swp
