@@ -43,7 +43,16 @@
       <h2>Performance by LLM</h2>
       <div class="card" style="padding: 0; overflow:hidden;">
         <table class="table" id="llm-table">
-          <thead><tr><th>LLM</th><th>Visibility</th><th>Mentions / Queries</th><th>Target Rank</th></tr></thead>
+          <thead>
+            <tr>
+              <th>LLM</th>
+              <th>Recommended %</th>
+              <th>Cited %</th>
+              <th>Recs / Queries</th>
+              <th>Cites / Queries</th>
+              <th>Target Rank</th>
+            </tr>
+          </thead>
           <tbody></tbody>
         </table>
       </div>
@@ -51,13 +60,24 @@
       <h2 style="margin-top: 32px;">Visibility by Intent</h2>
       <div class="card" style="padding:0; overflow:hidden;">
         <table class="table" id="intent-table">
-          <thead><tr><th>Intent</th><th>Visibility</th><th>Mentions</th><th>Queries</th></tr></thead>
+          <thead><tr><th>Intent</th><th>Any-Occurrence</th><th>Recommended</th><th>Queries</th></tr></thead>
           <tbody></tbody>
         </table>
       </div>
 
-      <h2 style="margin-top: 32px;">Company Rankings</h2>
-      <div class="rankings-grid" id="rankings-grid"></div>
+      <h2 style="margin-top: 32px;">Recommended Companies (mentions in prose)</h2>
+      <p class="muted" style="margin-top: -8px; margin-bottom: 16px;">Companies the LLM actually recommended as a brand.</p>
+      <div class="rankings-grid" id="rankings-recommended"></div>
+
+      <h2 style="margin-top: 32px;">Cited Companies (source/reference links)</h2>
+      <p class="muted" style="margin-top: -8px; margin-bottom: 16px;">Companies used only as source material, not explicitly recommended.</p>
+      <div class="rankings-grid" id="rankings-cited"></div>
+
+      <h2 style="margin-top: 32px;">All Links</h2>
+      <p class="muted" style="margin-top: -8px; margin-bottom: 16px;">Every URL that appeared in any response — deduplicated across the audit.</p>
+      <div class="card" id="all-links-card">
+        <div id="all-links"></div>
+      </div>
 
       <h2 style="margin-top: 32px;">Raw Responses</h2>
       <div class="card">

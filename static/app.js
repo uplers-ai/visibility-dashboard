@@ -234,89 +234,178 @@ function renderStatus(audit) {
 function renderResults(audit, results) {
   document.getElementById('results-content').style.display = 'block';
   const a = audit.analysis || {};
+  const target = audit.target_company;
+  const isTarget = (name) => name && name.toLowerCase() === target.toLowerCase();
 
   // score cards
   const overall = a.overall || {};
   const sg = document.getElementById('score-grid');
-  const rankClass = overall.target_rank <= 3 ? 'accent' : overall.target_rank <= 10 ? 'warning' : 'danger';
+  const recRankClass = overall.target_recommended_rank == null
+    ? 'danger'
+    : overall.target_recommended_rank <= 3 ? 'accent'
+    : overall.target_recommended_rank <= 10 ? 'warning' : 'danger';
   sg.innerHTML = `
     <div class="score-card primary">
-      <div class="label">Visibility Score</div>
-      <div class="value accent">${fmt.pct(overall.visibility_score || 0)}</div>
-      <div class="detail">${overall.target_mentions || 0} mentions in ${overall.total_queries || 0} queries</div>
+      <div class="label">Recommendation Score</div>
+      <div class="value accent">${fmt.pct(overall.recommendation_score || 0)}</div>
+      <div class="detail">${target} recommended in ${overall.target_recommended_in || 0} of ${overall.total_queries || 0} responses</div>
     </div>
     <div class="score-card">
-      <div class="label">Ranking</div>
-      <div class="value ${rankClass}">#${overall.target_rank ?? '—'}</div>
-      <div class="detail">of ${overall.total_companies_mentioned || 0} companies</div>
+      <div class="label">Citation Score</div>
+      <div class="value warning">${fmt.pct(overall.citation_score || 0)}</div>
+      <div class="detail">cited (source link) in ${overall.target_cited_in || 0} of ${overall.total_queries || 0}</div>
     </div>
     <div class="score-card">
-      <div class="label">LLMs Tested</div>
-      <div class="value">${(a.meta?.llms_tested || []).length}</div>
-      <div class="detail">${(a.weak_spots || []).length} weak spots</div>
+      <div class="label">Recommended Rank</div>
+      <div class="value ${recRankClass}">${overall.target_recommended_rank ? '#' + overall.target_recommended_rank : '—'}</div>
+      <div class="detail">among recommended companies</div>
+    </div>
+    <div class="score-card">
+      <div class="label">Any-Occurrence Score</div>
+      <div class="value">${fmt.pct(overall.visibility_score || 0)}</div>
+      <div class="detail">mentions or citations combined</div>
     </div>
   `;
 
   // LLM table
   const llmBody = document.querySelector('#llm-table tbody');
   llmBody.innerHTML = Object.entries(a.by_llm || {}).map(([llm, d]) => {
-    const rankings = a.company_rankings?.[llm] || [];
-    const targetRank = rankings.find(r => r.company.toLowerCase() === audit.target_company.toLowerCase())?.rank || '—';
+    const recRankings = a.rankings_recommended?.[llm] || [];
+    const targetRecRank = recRankings.find(r => isTarget(r.company))?.rank || '—';
     return `
       <tr>
         <td><strong>${fmt.escape(llm)}</strong></td>
-        <td><span style="color: var(--accent); font-weight:600;">${fmt.pct(d.visibility_score)}</span></td>
-        <td class="mono">${d.mentions} / ${d.queries}</td>
-        <td class="mono">#${targetRank}</td>
+        <td><span style="color: var(--accent); font-weight:600;">${fmt.pct(d.recommendation_score || 0)}</span></td>
+        <td><span style="color: var(--warning);">${fmt.pct(d.citation_score || 0)}</span></td>
+        <td class="mono">${d.recommended_in || 0} / ${d.queries}</td>
+        <td class="mono">${d.cited_in || 0} / ${d.queries}</td>
+        <td class="mono">${targetRecRank === '—' ? '—' : '#' + targetRecRank}</td>
       </tr>
     `;
   }).join('');
 
   // Intent table
   const intentRows = Object.entries(a.by_intent || {})
-    .sort((x, y) => y[1].visibility_score - x[1].visibility_score);
+    .sort((x, y) => (y[1].recommendation_score || 0) - (x[1].recommendation_score || 0));
   document.querySelector('#intent-table tbody').innerHTML = intentRows.map(([intent, d]) => `
     <tr>
       <td>${fmt.escape(intent)}</td>
-      <td><strong>${fmt.pct(d.visibility_score)}</strong></td>
-      <td class="mono">${d.mentions}</td>
+      <td class="mono">${fmt.pct(d.visibility_score || 0)}</td>
+      <td><strong style="color: var(--accent);">${fmt.pct(d.recommendation_score || 0)}</strong></td>
       <td class="mono">${d.queries}</td>
     </tr>
   `).join('');
 
-  // Rankings (overall + per LLM)
-  const rg = document.getElementById('rankings-grid');
-  const sections = [['Overall', a.company_rankings?.overall || []]]
-    .concat((a.meta?.llms_tested || []).map(llm => [llm, a.company_rankings?.[llm] || []]));
-  rg.innerHTML = sections.map(([label, items]) => `
-    <div class="rankings-card">
-      <div class="card-header">${fmt.escape(label)} Rankings</div>
-      <div class="rankings-list">
-        ${items.slice(0, 20).map(item => `
-          <div class="ranking-item ${item.company.toLowerCase() === audit.target_company.toLowerCase() ? 'target' : ''}">
-            <div class="rank-num">${item.rank}</div>
-            <div class="company-name">${fmt.escape(item.company)}</div>
-            <div class="mention-count">${item.mentions}</div>
-          </div>
-        `).join('') || '<div class="ranking-item"><span class="muted">No mentions</span></div>'}
-      </div>
-    </div>
-  `).join('');
+  // Rankings — Recommended (mentions)
+  renderRankings('rankings-recommended', a.rankings_recommended || {}, 'mentions', a.meta?.llms_tested || [], target);
+  // Rankings — Cited (citations)
+  renderRankings('rankings-cited', a.rankings_cited || {}, 'citations', a.meta?.llms_tested || [], target);
+
+  // All links aggregate
+  renderAllLinks(results);
 
   // Raw responses
   document.getElementById('raw-count').textContent = results.length;
-  document.getElementById('raw-list').innerHTML = results.map(r => `
+  document.getElementById('raw-list').innerHTML = results.map(r => renderRawResponse(r, target)).join('');
+}
+
+function renderRankings(containerId, data, countKey, llms, target) {
+  const el = document.getElementById(containerId);
+  if (!el) return;
+  const sections = [['Overall', data.overall || []]].concat(llms.map(l => [l, data[l] || []]));
+  el.innerHTML = sections.map(([label, items]) => `
+    <div class="rankings-card">
+      <div class="card-header">${fmt.escape(label)}</div>
+      <div class="rankings-list">
+        ${items.slice(0, 20).map(item => `
+          <div class="ranking-item ${item.company.toLowerCase() === target.toLowerCase() ? 'target' : ''}">
+            <div class="rank-num">${item.rank}</div>
+            <div class="company-name">${fmt.escape(item.company)}</div>
+            <div class="mention-count">${item[countKey]}</div>
+          </div>
+        `).join('') || '<div class="ranking-item"><span class="muted" style="margin-left: 12px;">No data</span></div>'}
+      </div>
+    </div>
+  `).join('');
+}
+
+function renderAllLinks(results) {
+  const host = document.getElementById('all-links');
+  if (!host) return;
+  const bodyMap = new Map();   // url -> {url, contexts:Set}
+  const sourceMap = new Map();
+  results.forEach(r => {
+    (r.links || []).forEach(link => {
+      const map = link.in_sources ? sourceMap : bodyMap;
+      const entry = map.get(link.url) || { url: link.url, llms: new Set(), title: link.title };
+      entry.llms.add(r.llm);
+      if (link.title) entry.title = link.title;
+      map.set(link.url, entry);
+    });
+  });
+  function renderGroup(label, map) {
+    if (!map.size) return '';
+    const items = [...map.values()].sort((a, b) => a.url.localeCompare(b.url));
+    return `
+      <h3 style="margin-top: 16px;">${label} (${map.size})</h3>
+      <ul style="list-style:none; padding:0; margin:0;">
+        ${items.map(e => `
+          <li style="padding:10px 0; border-bottom:1px solid var(--border); display:flex; gap:12px; align-items:baseline;">
+            <a href="${fmt.escape(e.url)}" target="_blank" rel="noopener" style="color: var(--accent); text-decoration:none; word-break:break-all; flex:1;">${fmt.escape(e.title || e.url)}</a>
+            ${e.title ? `<span class="muted mono" style="font-size:12px; word-break:break-all;">${fmt.escape(e.url)}</span>` : ''}
+            <span class="muted mono" style="font-size:12px;">${[...e.llms].join(', ')}</span>
+          </li>
+        `).join('')}
+      </ul>
+    `;
+  }
+  if (!bodyMap.size && !sourceMap.size) {
+    host.innerHTML = '<p class="muted">No links found in any response.</p>';
+    return;
+  }
+  host.innerHTML = renderGroup('In Sources / References', sourceMap) + renderGroup('In Body', bodyMap);
+}
+
+function renderRawResponse(r, target) {
+  const badge = (label, count, color) => count
+    ? `<span style="background: ${color}; color: var(--bg-primary); padding:2px 8px; border-radius:10px; font-size:11px; font-weight:600;">${label} ${count}</span>`
+    : '';
+  const mentionBadge = badge('mention', r.target_mention_count, 'var(--accent)');
+  const citationBadge = badge('cite', r.target_citation_count, 'var(--warning)');
+  const missIndicator = (!r.target_mention_count && !r.target_citation_count)
+    ? '<span style="color: var(--text-muted); font-size:12px;">not found</span>' : '';
+
+  const linksHtml = (r.links || []).length
+    ? `<div style="margin-top:10px;">
+         <div class="muted" style="font-size:12px; margin-bottom:6px;">Links (${r.links.length}):</div>
+         <ul style="list-style:none; padding:0; margin:0; font-size:12px;">
+           ${r.links.map(l => `
+             <li style="padding:4px 0;">
+               <span class="muted" style="font-size:10px; text-transform:uppercase; margin-right:8px;">${l.in_sources ? 'src' : 'body'}</span>
+               <a href="${fmt.escape(l.url)}" target="_blank" rel="noopener" style="color: var(--accent); word-break:break-all;">${fmt.escape(l.url)}</a>
+             </li>
+           `).join('')}
+         </ul>
+       </div>` : '';
+
+  const classifiedHtml = r.companies_classified && Object.keys(r.companies_classified).length
+    ? `<div class="muted mono" style="margin-top:8px; font-size:12px;">
+         Classified: ${Object.entries(r.companies_classified).map(([k, v]) => `${fmt.escape(k)} <span style="color: var(--accent);">M${v.mentions}</span>/<span style="color: var(--warning);">C${v.citations}</span>`).join(' · ')}
+       </div>` : '';
+
+  return `
     <details style="border:1px solid var(--border); border-radius:10px; padding:12px 16px; margin-bottom:10px;">
       <summary style="cursor:pointer; display:flex; gap:12px; align-items:center;">
         <span style="font-weight:600;">${fmt.escape(r.llm)}</span>
         <span class="muted">run ${r.run_number}</span>
         <span style="flex:1;">${fmt.escape(r.query_text)}</span>
-        <span style="color: ${r.target_mentioned ? 'var(--accent)' : 'var(--text-muted)'};">${r.target_mentioned ? '✓ mentioned' : '✗ not mentioned'}</span>
+        ${mentionBadge} ${citationBadge} ${missIndicator}
       </summary>
       <div style="margin-top:12px; white-space:pre-wrap; font-size:13px; color: var(--text-secondary); line-height:1.7;">${fmt.escape(r.response || '(empty response)')}</div>
-      ${Object.keys(r.companies_mentioned || {}).length ? `<div style="margin-top:8px;" class="muted mono">Detected: ${Object.entries(r.companies_mentioned).map(([k,v]) => `${k}×${v}`).join(', ')}</div>` : ''}
+      ${linksHtml}
+      ${classifiedHtml}
     </details>
-  `).join('');
+  `;
 }
 
 // ======================================================================

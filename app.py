@@ -83,6 +83,10 @@ def _run_audit_thread(audit_id: int) -> None:
                 response=r["response"],
                 companies_mentioned=r["companies_mentioned"],
                 target_mentioned=r["target_mentioned"],
+                companies_classified=r.get("companies_classified") or {},
+                target_mention_count=r.get("target_mention_count", 0),
+                target_citation_count=r.get("target_citation_count", 0),
+                links=r.get("links") or [],
             )
 
         def on_progress(completed: int, total: int, msg: str) -> None:

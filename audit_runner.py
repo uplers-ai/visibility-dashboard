@@ -174,6 +174,111 @@ def extract_companies(text: str) -> dict:
 
 
 # ---------------------------------------------------------------------------
+# Mention vs Citation classification + link extraction
+# ---------------------------------------------------------------------------
+
+_SOURCES_MARKER = re.compile(
+    r"\n\s*(?:sources?|references?|citations?|further reading|bibliography)\s*[:：]*\s*\n",
+    re.IGNORECASE,
+)
+
+_URL_REGEX = re.compile(r"https?://[^\s<>\"'\)\]]+", re.IGNORECASE)
+
+_URL_TLDS = r"(?:com|io|dev|co|tech|ai|org|net|in|uk|app|us|me)"
+
+
+def _split_body_sources(text: str) -> tuple[str, str]:
+    """Split text into (body, sources_section) at explicit Sources: / References:
+    markers. We deliberately do NOT treat bare numbered lists as sources — LLMs
+    often answer with `1. Foo 2. Bar` which is content, not citations."""
+    m = _SOURCES_MARKER.search(text or "")
+    if m:
+        return text[: m.start()], text[m.start() :]
+    return text or "", ""
+
+
+def classify_occurrences(text: str, brand: str) -> tuple[int, int]:
+    """Return (mentions, citations) for a brand in a response.
+
+    - mention = bare brand word in the body (prose recommendation)
+    - citation = brand in URL form (brand.com / .io / ...), OR any occurrence
+      inside a Sources/References section
+    """
+    if not text or not brand:
+        return 0, 0
+
+    body, sources = _split_body_sources(text)
+    brand_lower = brand.lower()
+    brand_esc = re.escape(brand_lower)
+
+    url_pattern = re.compile(r"\b" + brand_esc + r"\." + _URL_TLDS + r"\b", re.IGNORECASE)
+    word_pattern = re.compile(r"\b" + brand_esc + r"\b", re.IGNORECASE)
+
+    # All occurrences inside Sources section count as citations
+    sources_citations = len(word_pattern.findall(sources))
+
+    # URL-form occurrences in body = citations
+    body_url_citations = len(url_pattern.findall(body))
+
+    # Bare-word mentions in body (exclude positions inside URLs)
+    body_without_brand_urls = url_pattern.sub("___URL___", body)
+    body_mentions = len(word_pattern.findall(body_without_brand_urls))
+
+    return body_mentions, body_url_citations + sources_citations
+
+
+def classify_all_companies(text: str, companies: list[str]) -> dict:
+    """For each company name, return {"mentions": N, "citations": M}."""
+    out: dict[str, dict] = {}
+    if not text or not companies:
+        return out
+    for c in companies:
+        m, ci = classify_occurrences(text, c)
+        if m or ci:
+            out[c] = {"mentions": m, "citations": ci}
+    return out
+
+
+def extract_links(text: str, api_citations: list | None = None) -> list[dict]:
+    """Extract every URL from the response text. Returns list of
+    {url, in_sources, title?}. `api_citations` is extra URLs returned by
+    Perplexity's API (always treated as source-section)."""
+    body, _ = _split_body_sources(text or "")
+    body_end = len(body)
+
+    def clean(u: str) -> str:
+        return u.rstrip(".,;:!?)]}'\"")
+
+    seen: set[str] = set()
+    out: list[dict] = []
+
+    for m in _URL_REGEX.finditer(text or ""):
+        url = clean(m.group(0))
+        if not url or url in seen:
+            continue
+        seen.add(url)
+        out.append({"url": url, "in_sources": m.start() >= body_end})
+
+    if api_citations:
+        for c in api_citations:
+            if isinstance(c, str):
+                url = clean(c)
+                if url and url not in seen:
+                    seen.add(url)
+                    out.append({"url": url, "in_sources": True})
+            elif isinstance(c, dict):
+                url = clean(c.get("url") or "")
+                if url and url not in seen:
+                    seen.add(url)
+                    entry = {"url": url, "in_sources": True}
+                    if c.get("title"):
+                        entry["title"] = c["title"]
+                    out.append(entry)
+
+    return out
+
+
+# ---------------------------------------------------------------------------
 # LLM clients
 # ---------------------------------------------------------------------------
 
@@ -259,10 +364,10 @@ def _system_prompt(location: str) -> str:
 # Per-LLM query functions
 # ---------------------------------------------------------------------------
 
-def query_openai(prompt: str, location: str) -> str:
+def query_openai(prompt: str, location: str) -> tuple[str, list]:
     client = _clients.get("ChatGPT")
     if not client:
-        return ""
+        return "", []
 
     def _call():
         resp = client.chat.completions.create(
@@ -276,13 +381,13 @@ def query_openai(prompt: str, location: str) -> str:
         )
         return resp.choices[0].message.content or ""
 
-    return _retry(_call, "OpenAI")
+    return _retry(_call, "OpenAI"), []
 
 
-def query_anthropic(prompt: str, location: str) -> str:
+def query_anthropic(prompt: str, location: str) -> tuple[str, list]:
     client = _clients.get("Claude")
     if not client:
-        return ""
+        return "", []
 
     def _call():
         resp = client.messages.create(
@@ -293,13 +398,13 @@ def query_anthropic(prompt: str, location: str) -> str:
         )
         return resp.content[0].text
 
-    return _retry(_call, "Anthropic")
+    return _retry(_call, "Anthropic"), []
 
 
-def query_gemini(prompt: str, location: str) -> str:
+def query_gemini(prompt: str, location: str) -> tuple[str, list]:
     model = _clients.get("Gemini")
     if not model:
-        return ""
+        return "", []
 
     full_prompt = f"{_system_prompt(location)}\n\nUser question: {prompt}"
 
@@ -314,13 +419,13 @@ def query_gemini(prompt: str, location: str) -> str:
             return resp.text or ""
         return ""
 
-    return _retry(_call, "Gemini")
+    return _retry(_call, "Gemini"), []
 
 
-def query_grok(prompt: str, location: str) -> str:
+def query_grok(prompt: str, location: str) -> tuple[str, list]:
     api_key = _clients.get("Grok")
     if not api_key:
-        return ""
+        return "", []
 
     def _call():
         resp = requests.post(
@@ -340,13 +445,16 @@ def query_grok(prompt: str, location: str) -> str:
         resp.raise_for_status()
         return resp.json()["choices"][0]["message"]["content"]
 
-    return _retry(_call, "Grok")
+    return _retry(_call, "Grok"), []
 
 
-def query_perplexity(prompt: str, location: str) -> str:
+def query_perplexity(prompt: str, location: str) -> tuple[str, list]:
     api_key = _clients.get("Perplexity")
     if not api_key:
-        return ""
+        return "", []
+
+    # Perplexity returns citations in a separate field — capture via closure
+    captured_citations: list = []
 
     def _call():
         resp = requests.post(
@@ -364,9 +472,24 @@ def query_perplexity(prompt: str, location: str) -> str:
             timeout=60,
         )
         resp.raise_for_status()
-        return resp.json()["choices"][0]["message"]["content"]
+        data = resp.json()
 
-    return _retry(_call, "Perplexity")
+        # Collect citations — Perplexity's schema has varied; handle both
+        # `citations: [url, ...]` and newer `search_results: [{url, title}, ...]`
+        captured_citations.clear()
+        for c in data.get("citations") or []:
+            if isinstance(c, str):
+                captured_citations.append(c)
+            elif isinstance(c, dict) and c.get("url"):
+                captured_citations.append(c)
+        for sr in data.get("search_results") or []:
+            if isinstance(sr, dict) and sr.get("url"):
+                captured_citations.append({"url": sr["url"], "title": sr.get("title")})
+
+        return data["choices"][0]["message"]["content"]
+
+    text = _retry(_call, "Perplexity")
+    return text, list(captured_citations)
 
 
 QUERY_FUNCS = {
@@ -414,25 +537,38 @@ def run_audit(
                         "run_number": run_num,
                         "response": "",
                         "companies_mentioned": {},
+                        "companies_classified": {},
                         "target_mentioned": False,
+                        "target_mention_count": 0,
+                        "target_citation_count": 0,
+                        "links": [],
                     })
                     on_progress(completed, total, f"{llm} unavailable - skipping")
                 continue
 
             for run_num in range(1, runs_per_prompt + 1):
-                response = func(q["text"], location)
+                response, api_citations = func(q["text"], location)
                 companies = extract_companies(response)
-                target_mentioned = any(
-                    target_company.lower() in c.lower() or c.lower() in target_company.lower()
-                    for c in companies
-                )
+                classified = classify_all_companies(response, list(companies.keys()))
+                t_mentions, t_citations = classify_occurrences(response, target_company)
+                # If the target isn't in our detected list but we found occurrences,
+                # make sure it shows up in classified for rankings
+                if (t_mentions or t_citations) and target_company not in classified:
+                    classified[target_company] = {"mentions": t_mentions, "citations": t_citations}
+                target_mentioned = bool(t_mentions or t_citations)
+                links = extract_links(response, api_citations)
+
                 on_result({
                     "query_id": q["id"],
                     "llm": llm,
                     "run_number": run_num,
                     "response": response,
                     "companies_mentioned": companies,
+                    "companies_classified": classified,
                     "target_mentioned": target_mentioned,
+                    "target_mention_count": t_mentions,
+                    "target_citation_count": t_citations,
+                    "links": links,
                 })
                 completed += 1
                 on_progress(
@@ -445,6 +581,23 @@ def run_audit(
 # ---------------------------------------------------------------------------
 # Analysis (computed after audit completes from stored results)
 # ---------------------------------------------------------------------------
+
+def _rank_companies(
+    results: list[dict],
+    key: str,  # "mentions" or "citations"
+) -> list[dict]:
+    """Sum per-company `key` counts across results and return ranked list."""
+    totals: dict[str, int] = defaultdict(int)
+    for r in results:
+        classified = r.get("companies_classified") or {}
+        for company, counts in classified.items():
+            totals[company] += counts.get(key, 0)
+    totals = {c: n for c, n in totals.items() if n > 0}
+    return [
+        {"company": c, key: n, "rank": i + 1}
+        for i, (c, n) in enumerate(sorted(totals.items(), key=lambda x: x[1], reverse=True))
+    ]
+
 
 def analyze(results: list[dict], target_company: str) -> dict:
     """Compute analytics from a list of result dicts (from db.get_results)."""
@@ -460,32 +613,58 @@ def analyze(results: list[dict], target_company: str) -> dict:
         "overall": {},
         "by_llm": {},
         "by_intent": {},
-        "company_rankings": {},
+        "company_rankings": {},          # legacy: any-occurrence counts
+        "rankings_recommended": {},      # NEW: ranked by mention count
+        "rankings_cited": {},            # NEW: ranked by citation count
         "weak_spots": [],
     }
 
-    target_mentions = sum(1 for r in results if r["target_mentioned"])
-    analysis["overall"]["visibility_score"] = round(target_mentions / len(results) * 100, 1)
-    analysis["overall"]["target_mentions"] = target_mentions
-    analysis["overall"]["total_queries"] = len(results)
+    n = len(results)
+    target_any = sum(1 for r in results if r["target_mentioned"])
+    target_recommended = sum(1 for r in results if r.get("target_mention_count", 0) > 0)
+    target_cited = sum(1 for r in results if r.get("target_citation_count", 0) > 0)
+    target_cited_only = sum(
+        1 for r in results
+        if r.get("target_citation_count", 0) > 0 and r.get("target_mention_count", 0) == 0
+    )
+    analysis["overall"]["visibility_score"] = round(target_any / n * 100, 1)
+    analysis["overall"]["recommendation_score"] = round(target_recommended / n * 100, 1)
+    analysis["overall"]["citation_score"] = round(target_cited / n * 100, 1)
+    analysis["overall"]["cited_only_score"] = round(target_cited_only / n * 100, 1)
+    analysis["overall"]["target_mentions"] = target_any
+    analysis["overall"]["target_recommended_in"] = target_recommended
+    analysis["overall"]["target_cited_in"] = target_cited
+    analysis["overall"]["total_mention_occurrences"] = sum(r.get("target_mention_count", 0) for r in results)
+    analysis["overall"]["total_citation_occurrences"] = sum(r.get("target_citation_count", 0) for r in results)
+    analysis["overall"]["total_queries"] = n
 
     for llm in analysis["meta"]["llms_tested"]:
         rows = [r for r in results if r["llm"] == llm]
-        mentions = sum(1 for r in rows if r["target_mentioned"])
+        any_ = sum(1 for r in rows if r["target_mentioned"])
+        rec = sum(1 for r in rows if r.get("target_mention_count", 0) > 0)
+        cit = sum(1 for r in rows if r.get("target_citation_count", 0) > 0)
         analysis["by_llm"][llm] = {
-            "visibility_score": round(mentions / len(rows) * 100, 1) if rows else 0,
-            "mentions": mentions,
+            "visibility_score": round(any_ / len(rows) * 100, 1) if rows else 0,
+            "recommendation_score": round(rec / len(rows) * 100, 1) if rows else 0,
+            "citation_score": round(cit / len(rows) * 100, 1) if rows else 0,
+            "mentions": any_,
+            "recommended_in": rec,
+            "cited_in": cit,
+            "mention_occurrences": sum(r.get("target_mention_count", 0) for r in rows),
+            "citation_occurrences": sum(r.get("target_citation_count", 0) for r in rows),
             "queries": len(rows),
         }
 
     intents = {r.get("query_intent") or "General" for r in results}
     for intent in intents:
         rows = [r for r in results if (r.get("query_intent") or "General") == intent]
-        mentions = sum(1 for r in rows if r["target_mentioned"])
-        score = round(mentions / len(rows) * 100, 1) if rows else 0
+        any_ = sum(1 for r in rows if r["target_mentioned"])
+        rec = sum(1 for r in rows if r.get("target_mention_count", 0) > 0)
+        score = round(any_ / len(rows) * 100, 1) if rows else 0
         analysis["by_intent"][intent] = {
             "visibility_score": score,
-            "mentions": mentions,
+            "recommendation_score": round(rec / len(rows) * 100, 1) if rows else 0,
+            "mentions": any_,
             "queries": len(rows),
         }
         if score < 20:
@@ -495,11 +674,11 @@ def analyze(results: list[dict], target_company: str) -> dict:
                 "sample_prompts": list({r["query_text"] for r in rows})[:3],
             })
 
-    # company rankings overall
+    # Legacy rankings (any occurrence) — kept for backward compat
     counts: dict[str, int] = defaultdict(int)
     for r in results:
-        for c, n in r["companies_mentioned"].items():
-            counts[c] += n
+        for c, cnt in r["companies_mentioned"].items():
+            counts[c] += cnt
     sorted_overall = sorted(counts.items(), key=lambda x: x[1], reverse=True)
     analysis["company_rankings"]["overall"] = [
         {"company": c, "mentions": m, "rank": i + 1} for i, (c, m) in enumerate(sorted_overall)
@@ -511,15 +690,30 @@ def analyze(results: list[dict], target_company: str) -> dict:
     analysis["overall"]["target_rank"] = target_rank
     analysis["overall"]["total_companies_mentioned"] = len(sorted_overall)
 
-    # rankings per LLM
     for llm in analysis["meta"]["llms_tested"]:
         per: dict[str, int] = defaultdict(int)
         for r in [x for x in results if x["llm"] == llm]:
-            for c, n in r["companies_mentioned"].items():
-                per[c] += n
+            for c, cnt in r["companies_mentioned"].items():
+                per[c] += cnt
         analysis["company_rankings"][llm] = [
             {"company": c, "mentions": m, "rank": i + 1}
             for i, (c, m) in enumerate(sorted(per.items(), key=lambda x: x[1], reverse=True))
         ]
+
+    # NEW: split rankings — recommended vs cited
+    analysis["rankings_recommended"]["overall"] = _rank_companies(results, "mentions")
+    analysis["rankings_cited"]["overall"] = _rank_companies(results, "citations")
+    for llm in analysis["meta"]["llms_tested"]:
+        llm_rows = [r for r in results if r["llm"] == llm]
+        analysis["rankings_recommended"][llm] = _rank_companies(llm_rows, "mentions")
+        analysis["rankings_cited"][llm] = _rank_companies(llm_rows, "citations")
+
+    # Target rank in recommended list
+    rec_overall = analysis["rankings_recommended"]["overall"]
+    target_rec_rank = next(
+        (x["rank"] for x in rec_overall if x["company"].lower() == target_company.lower()),
+        None,
+    )
+    analysis["overall"]["target_recommended_rank"] = target_rec_rank
 
     return analysis

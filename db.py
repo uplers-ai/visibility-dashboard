@@ -47,7 +47,11 @@ CREATE TABLE IF NOT EXISTS results (
     run_number INTEGER NOT NULL,
     response TEXT,
     companies_mentioned TEXT,
+    companies_classified_json TEXT,
     target_mentioned INTEGER NOT NULL DEFAULT 0,
+    target_mention_count INTEGER NOT NULL DEFAULT 0,
+    target_citation_count INTEGER NOT NULL DEFAULT 0,
+    links_json TEXT,
     created_at TEXT NOT NULL,
     FOREIGN KEY (audit_id) REFERENCES audits(id) ON DELETE CASCADE,
     FOREIGN KEY (query_id) REFERENCES queries(id) ON DELETE CASCADE
@@ -64,11 +68,23 @@ CREATE INDEX IF NOT EXISTS idx_results_audit ON results(audit_id);
 CREATE INDEX IF NOT EXISTS idx_queries_audit ON queries(audit_id);
 """
 
+_RESULTS_NEW_COLUMNS = [
+    ("companies_classified_json", "TEXT"),
+    ("target_mention_count", "INTEGER NOT NULL DEFAULT 0"),
+    ("target_citation_count", "INTEGER NOT NULL DEFAULT 0"),
+    ("links_json", "TEXT"),
+]
+
 
 def init_db() -> None:
     DB_PATH.parent.mkdir(parents=True, exist_ok=True)
     with connect() as conn:
         conn.executescript(SCHEMA)
+        # Migration: add newer columns to older databases
+        existing = {row["name"] for row in conn.execute("PRAGMA table_info(results)")}
+        for col_name, col_def in _RESULTS_NEW_COLUMNS:
+            if col_name not in existing:
+                conn.execute(f"ALTER TABLE results ADD COLUMN {col_name} {col_def}")
 
 
 @contextmanager
@@ -214,14 +230,20 @@ def insert_result(
     response: str,
     companies_mentioned: dict,
     target_mentioned: bool,
+    companies_classified: dict | None = None,
+    target_mention_count: int = 0,
+    target_citation_count: int = 0,
+    links: list | None = None,
 ) -> None:
     with connect() as conn:
         conn.execute(
             """
             INSERT INTO results (
                 audit_id, query_id, llm, run_number,
-                response, companies_mentioned, target_mentioned, created_at
-            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+                response, companies_mentioned, companies_classified_json,
+                target_mentioned, target_mention_count, target_citation_count,
+                links_json, created_at
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             """,
             (
                 audit_id,
@@ -230,7 +252,11 @@ def insert_result(
                 run_number,
                 response,
                 json.dumps(companies_mentioned),
+                json.dumps(companies_classified or {}),
                 1 if target_mentioned else 0,
+                int(target_mention_count or 0),
+                int(target_citation_count or 0),
+                json.dumps(links or []),
                 _now(),
             ),
         )
@@ -252,7 +278,14 @@ def get_results(audit_id: int) -> list[dict]:
         for r in rows:
             d = dict(r)
             d["companies_mentioned"] = json.loads(d["companies_mentioned"]) if d.get("companies_mentioned") else {}
+            d["companies_classified"] = json.loads(d["companies_classified_json"]) if d.get("companies_classified_json") else {}
+            d["links"] = json.loads(d["links_json"]) if d.get("links_json") else []
             d["target_mentioned"] = bool(d["target_mentioned"])
+            d["target_mention_count"] = int(d.get("target_mention_count") or 0)
+            d["target_citation_count"] = int(d.get("target_citation_count") or 0)
+            # drop raw json columns from output
+            d.pop("companies_classified_json", None)
+            d.pop("links_json", None)
             out.append(d)
         return out
 
